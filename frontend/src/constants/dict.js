@@ -52,6 +52,19 @@ export const TIMELINE_STAGE = {
   closed: { label: '故障关闭', type: 'info' },
 }
 
+// 现场材料所属阶段。
+export const MATERIAL_STAGE = {
+  registration: { label: '故障登记', type: 'primary' },
+  repair: { label: '维修过程', type: 'warning' },
+  acceptance: { label: '完工验收', type: 'success' },
+}
+
+// 现场材料类型。
+export const MATERIAL_KIND = {
+  photo: { label: '照片', type: 'primary' },
+  video: { label: '视频', type: 'warning' },
+}
+
 // 取字典项文案。
 export function dictLabel(dict, key, fallback = '-') {
   if (key === null || key === undefined || key === '') return fallback

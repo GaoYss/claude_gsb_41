@@ -17,9 +17,10 @@
 | 路灯台账 | 路灯基础档案维护 | 编号/道路/运行状态/灯具类型筛选, 按道路与状态统计, 删除前校验未闭环故障 |
 | 故障登记 | 故障工单登记与流转 | 自动生成故障单号, 紧急程度分级, 状态机流转, 闭环关闭 |
 | 维修记录录入 | 针对故障单登记维修过程 | 自动生成维修单号, 开工/完工时间, 耗材与费用, 四种维修结果 |
-| 维修状态查询 | 只读的综合看板与追踪视图 | 全局概览, 路灯级维修状态列表, 按故障单号/路灯编号的全链路时间线 |
+| 现场材料 | 故障各阶段的照片/视频留档 | 登记/维修过程/完工验收三阶段上传, 按阶段分组查看与下载, 必要材料缺失禁止闭环 |
+| 维修状态查询 | 只读的综合看板与追踪视图 | 全局概览(含材料完整率与缺失清单), 路灯级维修状态列表, 按故障单号/路灯编号的全链路时间线 |
 
-四个模块在后端是四个平级的独立包 (`internal/modules/{lamp,fault,repair,status}`), 在前端是四组独立的视图与子组件, 互不耦合; 新增一个业务模块只需要实现 `module.Module` 接口并注册。
+四个业务模块在后端是平级的独立包 (`internal/modules/{lamp,fault,repair,material}`), 维修状态查询 (`status`) 是只读聚合视图; 在前端是独立的视图与子组件, 互不耦合; 新增一个业务模块只需要实现 `module.Module` 接口并注册。
 
 ---
 
@@ -45,6 +46,7 @@
 │   │   │   ├── lamp/                     #   路灯台账
 │   │   │   ├── fault/                    #   故障登记
 │   │   │   ├── repair/                   #   维修记录录入
+│   │   │   ├── material/                 #   现场材料(照片/视频上传与完整性校验)
 │   │   │   └── status/                   #   维修状态查询(只读, 不建表)
 │   │   ├── response/                     # 统一响应信封 Envelope / PageData / OK / Fail
 │   ├── pkg/pagination/                   # 分页与排序参数(排序字段白名单)
@@ -102,13 +104,14 @@ modules/<name>/
 `bootstrap/modules.go` 负责按依赖顺序构造模块, 跨模块只允许依赖「下游端口」, 不反向依赖:
 
 ```text
-lamp.New(db)                                   -> 路灯台账(无依赖)
-fault.New(db, lampService)                     -> 故障登记(读取路灯校验)
-repair.New(db, faultService)                   -> 维修记录(驱动故障状态流转)
-status.New(db, lampRepo, faultRepo, repairRepo)-> 维修状态查询(只读聚合)
+lamp.New(db)                                              -> 路灯台账(无依赖)
+fault.New(db, lampService)                                -> 故障登记(读取路灯校验)
+repair.New(db, faultService)                              -> 维修记录(驱动故障状态流转)
+material.New(db, faultService, uploadDir)                 -> 现场材料(校验故障存在与状态)
+status.New(db, lampRepo, faultRepo, repairRepo, matRepo)  -> 维修状态查询(只读聚合)
 ```
 
-路灯运行状态需要根据故障反向回填, 但 `lamp` 不能依赖 `fault`, 因此用 `lampService.SetOpenFaultCounter(faultModule.Repository())` 注入一个统计端口, 避免构造函数循环依赖。
+路灯运行状态需要根据故障反向回填, 但 `lamp` 不能依赖 `fault`, 因此用 `lampService.SetOpenFaultCounter(faultModule.Repository())` 注入一个统计端口; 同理, 故障闭环需要校验必要材料, 但 `fault` 不能依赖 `material`, 因此用 `faultService.SetMaterialPort(materialModule.Service())` 注入材料端口, 均避免构造函数循环依赖。
 
 ### 3.3 统一响应与错误
 
@@ -227,6 +230,7 @@ go test ./...
 | `DB_DRIVER` | `sqlite` | `sqlite` 或 `postgres` |
 | `DB_DSN` | `data/streetlight.db` | sqlite 为文件路径, postgres 为连接串 |
 | `DB_LOG_LEVEL` | `warn` | GORM 日志级别 |
+| `UPLOAD_DIR` | `data/uploads` | 现场材料文件存储目录(照片 ≤10MB, 视频 ≤200MB) |
 
 前端变量放在 `frontend/.env.development` / `.env.production`, 只有 `VITE_API_BASE_URL` 与 `VITE_DEV_PROXY_TARGET`。
 
@@ -284,6 +288,15 @@ go test ./...
 | POST | `/repairs/:id/finish` | 完工(写入完工时间与维修结果) |
 | DELETE | `/repairs/:id` | 删除(会重算故障的维修次数) |
 
+### 现场材料
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/faults/:id/materials` | 上传材料(multipart: `file` + `stage` + 可选 `title`), 阶段: `registration` / `repair` / `acceptance` |
+| GET | `/faults/:id/materials` | 按阶段分组查看材料清单, 含完整性结论(`complete` / `missing`) |
+| GET | `/materials/:id/file` | 内联查看文件; 加 `?download=1` 转为附件下载 |
+| DELETE | `/materials/:id` | 删除材料(故障已关闭时返回 409) |
+
 ### 维修状态查询
 
 | 方法 | 路径 | 说明 |
@@ -304,6 +317,7 @@ go test ./...
 - **删除维修记录** 会重算故障的 `repair_count` / `latest_repair_id`, 次数归零时把故障从 `维修中` 回退到 `待处理`。
 - **删除路灯** 会被未闭环故障拦截; **删除故障** 要求已关闭且没有维修记录。
 - **逾期判定**: 上报超过 24 小时仍未闭环的故障计入概览的逾期清单。
+- **现场材料**: 必要材料为 登记现场照片、维修过程影像(照片或视频)、完工验收照片 各至少一份; 故障列表标记材料是否齐全, 概览给出完整率与缺失清单; 必要材料缺失时关闭故障返回 409, 不允许闭环; 已关闭故障的材料不可再上传或删除。
 
 ---
 
@@ -313,6 +327,7 @@ go test ./...
 
 - 6 条道路, 每条 5 盏路灯, 共 **30 盏**, 覆盖 `正常 / 故障 / 维修中 / 停用` 四种运行状态;
 - **14 条故障**, 覆盖待处理 / 维修中 / 已修复 / 已关闭四种状态, 其中包含 2 条已逾期;
-- **12 条维修记录**, 含进行中与已完工, 带耗材、费用与维修结果。
+- **12 条维修记录**, 含进行中与已完工, 带耗材、费用与维修结果;
+- **25 份现场材料**(占位照片), 分布在登记 / 维修过程 / 完工验收三个阶段, 材料完整率约 36%。
 
 想从空库开始, 把 `APP_SEED` 设为 `false`, 或删除数据卷后重启。

@@ -26,6 +26,8 @@ services:
       DB_DRIVER: ${DB_DRIVER:-sqlite}
       DB_DSN: ${DB_DSN:-/app/data/streetlight.db}
       DB_LOG_LEVEL: warn
+      # 现场材料(照片/视频)存储目录, 随数据卷持久化
+      UPLOAD_DIR: /app/data/uploads
       CORS_ALLOW_ORIGINS: "*"
       TZ: Asia/Shanghai
     volumes:

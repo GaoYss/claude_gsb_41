@@ -31,15 +31,29 @@ type LampPort interface {
 	UpdateRunStatus(ctx context.Context, id uint, status string) error
 }
 
+// MaterialPort 由现场材料模块实现, 故障模块通过它做闭环前的必要材料校验与列表齐全标记。
+type MaterialPort interface {
+	// MissingRequired 返回故障缺失的必要材料清单, 为空表示材料齐全。
+	MissingRequired(ctx context.Context, faultID uint) ([]string, error)
+	// CompletenessByFaults 批量返回每条故障缺失的必要材料清单。
+	CompletenessByFaults(ctx context.Context, faultIDs []uint) (map[uint][]string, error)
+}
+
 // Service 承载故障登记的业务规则, 并向维修模块提供故障状态流转能力。
 type Service struct {
-	repo  *Repository
-	lamps LampPort
+	repo      *Repository
+	lamps     LampPort
+	materials MaterialPort
 }
 
 // NewService 构造故障登记服务。
 func NewService(repo *Repository, lamps LampPort) *Service {
 	return &Service{repo: repo, lamps: lamps}
+}
+
+// SetMaterialPort 回填现场材料端口, 在材料模块构造完成后由装配层调用, 避免循环构造依赖。
+func (s *Service) SetMaterialPort(materials MaterialPort) {
+	s.materials = materials
 }
 
 // Repository 暴露仓储, 供 bootstrap 装配其它模块所需的端口。
@@ -66,7 +80,32 @@ func (s *Service) List(ctx context.Context, query ListQuery) ([]Fault, int64, pa
 	if err != nil {
 		return nil, 0, page, err
 	}
+	if err := s.fillMaterialStatus(ctx, items); err != nil {
+		return nil, 0, page, err
+	}
 	return items, total, page, nil
+}
+
+// fillMaterialStatus 为列表结果批量填充现场材料齐全标记, 材料模块未装配时跳过。
+func (s *Service) fillMaterialStatus(ctx context.Context, items []Fault) error {
+	if s.materials == nil || len(items) == 0 {
+		return nil
+	}
+	ids := make([]uint, 0, len(items))
+	for index := range items {
+		ids = append(ids, items[index].ID)
+	}
+	missingByFault, err := s.materials.CompletenessByFaults(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for index := range items {
+		missing := missingByFault[items[index].ID]
+		complete := len(missing) == 0
+		items[index].MaterialComplete = &complete
+		items[index].MaterialMissing = missing
+	}
+	return nil
 }
 
 // ListByLamp 查询某盏路灯的故障历史。
@@ -198,6 +237,17 @@ func (s *Service) Close(ctx context.Context, id uint, req CloseRequest) (*Fault,
 	}
 	if !canTransitTo(entity.Status, StatusClosed) {
 		return nil, apperr.Conflict("故障 %s 当前状态为 %s, 不允许关闭", entity.FaultNo, StatusLabel(entity.Status))
+	}
+
+	// 必要现场材料缺失时不允许闭环。
+	if s.materials != nil {
+		missing, err := s.materials.MissingRequired(ctx, entity.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(missing) > 0 {
+			return nil, apperr.Conflict("故障 %s 缺少必要现场材料, 不允许闭环: %s", entity.FaultNo, strings.Join(missing, "、"))
+		}
 	}
 
 	now := time.Now()

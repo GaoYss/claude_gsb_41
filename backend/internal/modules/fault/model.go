@@ -101,8 +101,13 @@ type Fault struct {
 	LatestRepairID *uint      `json:"latest_repair_id"`
 	ClosedAt       *time.Time `json:"closed_at"`
 	CloseRemark    string     `gorm:"size:255" json:"close_remark"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+
+	// 现场材料完整性仅用于响应展示, 由材料模块在查询时填充, 不落库。
+	MaterialComplete *bool    `gorm:"-" json:"material_complete,omitempty"`
+	MaterialMissing  []string `gorm:"-" json:"material_missing,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TableName 指定表名。

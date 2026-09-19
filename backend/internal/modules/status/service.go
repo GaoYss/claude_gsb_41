@@ -12,6 +12,7 @@ import (
 	"streetlight/internal/apperr"
 	"streetlight/internal/modules/fault"
 	"streetlight/internal/modules/lamp"
+	"streetlight/internal/modules/material"
 	"streetlight/internal/modules/repair"
 	"streetlight/pkg/pagination"
 )
@@ -49,17 +50,18 @@ type TrackQuery struct {
 }
 
 // Service 提供跨模块的维修状态查询能力(只读)。
-// 作为读模型, 它直接基于 lamp / fault / repair 三张表组装视图, 避免不必要的多次往返查询。
+// 作为读模型, 它直接基于 lamp / fault / repair / fault_material 四张表组装视图, 避免不必要的多次往返查询。
 type Service struct {
-	db      *gorm.DB
-	lamps   *lamp.Repository
-	faults  *fault.Repository
-	repairs *repair.Repository
+	db        *gorm.DB
+	lamps     *lamp.Repository
+	faults    *fault.Repository
+	repairs   *repair.Repository
+	materials *material.Repository
 }
 
 // NewService 构造维修状态查询服务。
-func NewService(db *gorm.DB, lamps *lamp.Repository, faults *fault.Repository, repairs *repair.Repository) *Service {
-	return &Service{db: db, lamps: lamps, faults: faults, repairs: repairs}
+func NewService(db *gorm.DB, lamps *lamp.Repository, faults *fault.Repository, repairs *repair.Repository, materials *material.Repository) *Service {
+	return &Service{db: db, lamps: lamps, faults: faults, repairs: repairs, materials: materials}
 }
 
 // Overview 汇总维修状态看板数据。
@@ -145,6 +147,11 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 		return nil, err
 	}
 
+	materialSummary, materialMissing, err := s.materialOverview(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Overview{
 		Lamp: LampSummary{
 			Total:       lampTotal,
@@ -166,14 +173,60 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 			AverageDurationHr: round2(averageDuration),
 			TotalCost:         round2(totalCost),
 		},
-		FaultByType:   topCounts(faultByType, 0),
-		FaultByLevel:  orderedCounts(faultByLevel, fault.Levels()),
-		TopRoads:      topCounts(faultByRoad, 5),
-		RecentFaults:  toBriefs(recentFaults),
-		OverdueFaults: toBriefs(overdueFaults),
-		OverdueHours:  OverdueThreshold.Hours(),
-		GeneratedAt:   now,
+		FaultByType:         topCounts(faultByType, 0),
+		FaultByLevel:        orderedCounts(faultByLevel, fault.Levels()),
+		TopRoads:            topCounts(faultByRoad, 5),
+		RecentFaults:        toBriefs(recentFaults),
+		OverdueFaults:       toBriefs(overdueFaults),
+		Material:            *materialSummary,
+		MaterialMissingList: materialMissing,
+		OverdueHours:        OverdueThreshold.Hours(),
+		GeneratedAt:         now,
 	}, nil
+}
+
+// materialOverview 汇总现场材料完整率, 并列出缺失必要材料的故障记录(最多 8 条)。
+func (s *Service) materialOverview(ctx context.Context) (*MaterialSummary, []MaterialMissingFault, error) {
+	summary := &MaterialSummary{}
+	missingList := make([]MaterialMissingFault, 0)
+
+	faults, err := s.faults.ListAll(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	fileTotal, err := s.materials.CountFiles(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	counts, err := s.materials.CountByFaults(ctx, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, item := range faults {
+		missing := material.MissingFromCounts(counts, item.ID)
+		if len(missing) == 0 {
+			summary.CompleteTotal++
+			continue
+		}
+		summary.IncompleteTotal++
+		if len(missingList) < 8 {
+			missingList = append(missingList, MaterialMissingFault{
+				ID:       item.ID,
+				FaultNo:  item.FaultNo,
+				LampCode: item.LampCode,
+				RoadName: item.RoadName,
+				Status:   item.Status,
+				Missing:  missing,
+			})
+		}
+	}
+
+	summary.FileTotal = fileTotal
+	if total := summary.CompleteTotal + summary.IncompleteTotal; total > 0 {
+		summary.CompleteRate = round2(float64(summary.CompleteTotal) / float64(total) * 100)
+	}
+	return summary, missingList, nil
 }
 
 // Lamps 查询路灯维修状态列表: 在台账信息之上叠加当前故障与最近一次维修进展。

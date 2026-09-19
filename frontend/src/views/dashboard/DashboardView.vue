@@ -54,6 +54,14 @@
         color="#409eff"
         :hint="`故障累计 ${overview.fault.total} 条`"
       />
+      <StatCard
+        label="材料完整率"
+        :value="overview.material.complete_rate"
+        suffix="%"
+        icon="FolderChecked"
+        color="#67c23a"
+        :hint="`齐全 ${overview.material.complete_total} 条 / 缺失 ${overview.material.incomplete_total} 条`"
+      />
     </div>
 
     <el-row :gutter="16">
@@ -119,10 +127,43 @@
       </el-col>
     </el-row>
 
-    <el-card shadow="never">
-      <div class="section-title">故障高发道路 TOP5</div>
-      <BarList :items="overview.top_roads" />
-    </el-card>
+    <el-row :gutter="16">
+      <el-col :xs="24" :md="12">
+        <el-card shadow="never">
+          <div class="section-title">
+            <span>缺失材料故障清单</span>
+            <el-tag type="warning" effect="plain" size="small">共 {{ overview.material.incomplete_total }} 条未齐全</el-tag>
+          </div>
+          <el-table :data="overview.material_missing_faults" size="small" @row-click="goTrack">
+            <el-table-column prop="fault_no" label="故障单号" width="140" />
+            <el-table-column prop="lamp_code" label="路灯编号" width="100" />
+            <el-table-column prop="road_name" label="道路" min-width="90" show-overflow-tooltip />
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }"><StatusTag :dict="FAULT_STATUS" :value="row.status" /></template>
+            </el-table-column>
+            <el-table-column label="缺失材料" min-width="180">
+              <template #default="{ row }">
+                <el-tag
+                  v-for="item in row.missing"
+                  :key="item"
+                  type="warning"
+                  size="small"
+                  effect="plain"
+                  class="missing-tag"
+                >{{ item }}</el-tag>
+              </template>
+            </el-table-column>
+            <template #empty><el-empty description="必要材料全部齐全" :image-size="60" /></template>
+          </el-table>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :md="12">
+        <el-card shadow="never">
+          <div class="section-title">故障高发道路 TOP5</div>
+          <BarList :items="overview.top_roads" />
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
@@ -145,11 +186,13 @@ const emptyOverview = () => ({
   lamp: { total: 0, road_count: 0, by_run_status: {} },
   fault: { total: 0, open_total: 0, by_status: {}, today_reported: 0, overdue_total: 0 },
   repair: { total: 0, ongoing_total: 0, finished_total: 0, today_finished: 0, average_duration_hours: 0, total_cost: 0 },
+  material: { complete_total: 0, incomplete_total: 0, complete_rate: 0, file_total: 0 },
   fault_by_type: [],
   fault_by_level: [],
   top_roads: [],
   recent_faults: [],
   overdue_faults: [],
+  material_missing_faults: [],
   overdue_threshold_hours: 24,
 })
 
@@ -189,3 +232,9 @@ function goTrack(row) {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.missing-tag {
+  margin-right: 4px;
+}
+</style>

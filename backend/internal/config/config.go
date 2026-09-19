@@ -15,6 +15,7 @@ type Config struct {
 	App      AppConfig
 	Server   ServerConfig
 	Database DatabaseConfig
+	Upload   UploadConfig
 }
 
 // AppConfig 应用级配置。
@@ -50,6 +51,11 @@ type DatabaseConfig struct {
 	LogLevel string
 }
 
+// UploadConfig 现场材料文件存储配置。
+type UploadConfig struct {
+	Dir string
+}
+
 // Load 读取环境变量并组装配置, 未设置的项使用默认值。
 func Load() (*Config, error) {
 	loadDotEnv()
@@ -71,6 +77,9 @@ func Load() (*Config, error) {
 			Driver:   strings.ToLower(getEnv("DB_DRIVER", "sqlite")),
 			DSN:      getEnv("DB_DSN", "data/streetlight.db"),
 			LogLevel: getEnv("DB_LOG_LEVEL", "warn"),
+		},
+		Upload: UploadConfig{
+			Dir: getEnv("UPLOAD_DIR", "data/uploads"),
 		},
 	}
 

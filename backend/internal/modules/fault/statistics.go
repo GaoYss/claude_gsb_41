@@ -105,3 +105,16 @@ func (r *Repository) ListRecent(ctx context.Context, limit int) ([]Fault, error)
 	}
 	return entities, nil
 }
+
+// ListAll 查询全部故障的摘要字段, 供看板做全量统计(如材料完整率)。
+func (r *Repository) ListAll(ctx context.Context) ([]Fault, error) {
+	entities := make([]Fault, 0)
+	err := r.session(ctx).Model(&Fault{}).
+		Select("id", "fault_no", "lamp_code", "road_name", "status").
+		Order("reported_at DESC, id DESC").
+		Find(&entities).Error
+	if err != nil {
+		return nil, fmt.Errorf("查询故障摘要失败: %w", err)
+	}
+	return entities, nil
+}

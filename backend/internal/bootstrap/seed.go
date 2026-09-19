@@ -1,14 +1,21 @@
 package bootstrap
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"gorm.io/gorm"
 
 	"streetlight/internal/modules/fault"
 	"streetlight/internal/modules/lamp"
+	"streetlight/internal/modules/material"
 	"streetlight/internal/modules/repair"
 )
 
@@ -26,6 +33,12 @@ type seedRepairCase struct {
 	cost        float64
 }
 
+// seedMaterialCase 描述一条演示现场材料, 演示数据仅生成照片。
+type seedMaterialCase struct {
+	stage string
+	title string
+}
+
 // seedFaultCase 描述一条演示故障记录。
 type seedFaultCase struct {
 	lampIndex   int
@@ -38,10 +51,11 @@ type seedFaultCase struct {
 	status      string
 	closed      bool
 	repairs     []seedRepairCase
+	materials   []seedMaterialCase
 }
 
 // seed 在数据库为空时写入演示数据, 便于启动后立即体验完整业务流程。
-func seed(db *gorm.DB) error {
+func seed(db *gorm.DB, uploadDir string) error {
 	var count int64
 	if err := db.Model(&lamp.Lamp{}).Count(&count).Error; err != nil {
 		return err
@@ -142,6 +156,11 @@ func seed(db *gorm.DB) error {
 		}
 	}
 
+	materialCount, err := seedMaterials(db, uploadDir, cases, faults, now)
+	if err != nil {
+		return err
+	}
+
 	if err := syncSeedLampStatus(db, faults, lamps); err != nil {
 		return err
 	}
@@ -150,8 +169,69 @@ func seed(db *gorm.DB) error {
 		"路灯", len(lamps),
 		"故障", len(faults),
 		"维修记录", len(repairs),
+		"现场材料", materialCount,
 	)
 	return nil
+}
+
+// seedMaterials 为演示故障生成各阶段的现场照片(纯色占位图), 让材料完整率呈现真实分布。
+func seedMaterials(db *gorm.DB, uploadDir string, cases []seedFaultCase, faults []fault.Fault, now time.Time) (int, error) {
+	total := 0
+	for index, item := range cases {
+		for _, expect := range item.materials {
+			relative := filepath.Join(faults[index].FaultNo, expect.stage, "seed-"+expect.stage+".png")
+			absolute := filepath.Join(uploadDir, relative)
+			if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+				return 0, fmt.Errorf("创建演示材料目录失败: %w", err)
+			}
+			photo := seedPhoto(expect.stage)
+			if err := os.WriteFile(absolute, photo, 0o644); err != nil {
+				return 0, fmt.Errorf("写入演示材料文件失败: %w", err)
+			}
+
+			record := material.Material{
+				FaultID:      faults[index].ID,
+				FaultNo:      faults[index].FaultNo,
+				Stage:        expect.stage,
+				Kind:         material.KindPhoto,
+				Title:        expect.title,
+				FileName:     relative,
+				OriginalName: expect.stage + ".png",
+				ContentType:  "image/png",
+				Size:         int64(len(photo)),
+			}
+			if err := db.Create(&record).Error; err != nil {
+				return 0, fmt.Errorf("写入现场材料演示数据失败: %w", err)
+			}
+			total++
+		}
+	}
+	return total, nil
+}
+
+// seedPhoto 生成一张按阶段着色的占位照片, 避免演示环境依赖外部图片资源。
+func seedPhoto(stage string) []byte {
+	colors := map[string]color.RGBA{
+		material.StageRegistration: {R: 64, G: 128, B: 255, A: 255},
+		material.StageRepair:       {R: 230, G: 162, B: 60, A: 255},
+		material.StageAcceptance:   {R: 103, G: 194, B: 58, A: 255},
+	}
+	fill, ok := colors[stage]
+	if !ok {
+		fill = color.RGBA{R: 144, G: 147, B: 153, A: 255}
+	}
+
+	img := image.NewRGBA(image.Rect(0, 0, 320, 200))
+	for y := 0; y < 200; y++ {
+		for x := 0; x < 320; x++ {
+			img.Set(x, y, fill)
+		}
+	}
+	var buffer bytes.Buffer
+	if err := png.Encode(&buffer, img); err != nil {
+		return nil
+	}
+	return buffer.Bytes()
 }
 
 // buildSeedLamps 生成 6 条道路共 30 盏路灯的台账数据。
@@ -206,6 +286,9 @@ func seedFaultCases() []seedFaultCase {
 			lampIndex: 0, faultType: "灯不亮", level: fault.LevelHigh, source: fault.SourceInspection,
 			description: "夜间巡检发现整灯不亮, 相邻灯杆照明正常", reporter: "王建国",
 			reportedAgo: 6 * hour, status: fault.StatusPending,
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+			},
 		},
 		{
 			lampIndex: 1, faultType: "灯光闪烁", level: fault.LevelNormal, source: fault.SourceCitizen,
@@ -216,6 +299,9 @@ func seedFaultCases() []seedFaultCase {
 			lampIndex: 2, faultType: "灯具常亮", level: fault.LevelLow, source: fault.SourceMonitoring,
 			description: "控制平台监测到该灯具白天仍处于点亮状态", reporter: "监控中心",
 			reportedAgo: 40 * hour, status: fault.StatusPending,
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+			},
 		},
 		{
 			lampIndex: 3, faultType: "线路故障", level: fault.LevelUrgent, source: fault.SourceInspection,
@@ -228,6 +314,9 @@ func seedFaultCases() []seedFaultCase {
 					cost: 180,
 				},
 			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+			},
 		},
 		{
 			lampIndex: 4, faultType: "控制箱故障", level: fault.LevelHigh, source: fault.SourceMonitoring,
@@ -238,6 +327,10 @@ func seedFaultCases() []seedFaultCase {
 					repairman: "陈鹏", team: "市政照明二班", startedAgo: 1 * hour,
 					content: "检查控制箱通讯模块, 疑似模块损坏", materials: "通讯模块 1 个", cost: 260,
 				},
+			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+				{stage: material.StageRepair, title: "维修过程照片"},
 			},
 		},
 		{
@@ -251,6 +344,11 @@ func seedFaultCases() []seedFaultCase {
 					materials: "驱动电源 1 个", cost: 220,
 				},
 			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+				{stage: material.StageRepair, title: "维修过程照片"},
+				{stage: material.StageAcceptance, title: "完工验收照片"},
+			},
 		},
 		{
 			lampIndex: 6, faultType: "灯具破损", level: fault.LevelNormal, source: fault.SourceInspection,
@@ -262,6 +360,10 @@ func seedFaultCases() []seedFaultCase {
 					result: repair.ResultFixed, content: "更换灯头总成并密封处理",
 					materials: "LED 灯头 1 套", cost: 460,
 				},
+			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+				{stage: material.StageRepair, title: "维修过程照片"},
 			},
 		},
 		{
@@ -275,6 +377,11 @@ func seedFaultCases() []seedFaultCase {
 					materials: "基础法兰 1 套", cost: 980,
 				},
 			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+				{stage: material.StageRepair, title: "维修过程照片"},
+				{stage: material.StageAcceptance, title: "完工验收照片"},
+			},
 		},
 		{
 			lampIndex: 8, faultType: "灯不亮", level: fault.LevelNormal, source: fault.SourceMonitoring,
@@ -287,6 +394,11 @@ func seedFaultCases() []seedFaultCase {
 					materials: "熔断器 1 只", cost: 60,
 				},
 			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+				{stage: material.StageRepair, title: "维修过程照片"},
+				{stage: material.StageAcceptance, title: "完工验收照片"},
+			},
 		},
 		{
 			lampIndex: 9, faultType: "灯光闪烁", level: fault.LevelNormal, source: fault.SourceInspection,
@@ -298,6 +410,11 @@ func seedFaultCases() []seedFaultCase {
 					result: repair.ResultFixed, content: "更换驱动电源, 频闪消除",
 					materials: "驱动电源 1 个", cost: 220,
 				},
+			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+				{stage: material.StageRepair, title: "维修过程照片"},
+				{stage: material.StageAcceptance, title: "完工验收照片"},
 			},
 		},
 		{
@@ -316,6 +433,11 @@ func seedFaultCases() []seedFaultCase {
 					materials: "电缆 40 米, 热缩管 4 套", cost: 1560,
 				},
 			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+				{stage: material.StageRepair, title: "维修过程照片"},
+				{stage: material.StageAcceptance, title: "完工验收照片"},
+			},
 		},
 		{
 			lampIndex: 11, faultType: "灯具常亮", level: fault.LevelLow, source: fault.SourceOther,
@@ -327,6 +449,10 @@ func seedFaultCases() []seedFaultCase {
 					result: repair.ResultFixed, content: "更换接触器, 恢复远程开关灯控制",
 					materials: "交流接触器 1 只", cost: 150,
 				},
+			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
+				{stage: material.StageRepair, title: "维修过程照片"},
 			},
 		},
 		{
@@ -343,6 +469,9 @@ func seedFaultCases() []seedFaultCase {
 					repairman: "刘志强", team: "市政照明一班", startedAgo: 12 * hour,
 					content: "拆检控制箱, 正在逐路测量回路电流", materials: "万用表、绝缘胶带", cost: 40,
 				},
+			},
+			materials: []seedMaterialCase{
+				{stage: material.StageRegistration, title: "登记现场照片"},
 			},
 		},
 	}

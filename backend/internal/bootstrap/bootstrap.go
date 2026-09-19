@@ -37,7 +37,7 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("连接数据库失败: %w", err)
 	}
 
-	modules := buildModules(db)
+	modules := buildModules(db, cfg.Upload.Dir)
 	models := make([]any, 0)
 	for _, item := range modules {
 		models = append(models, item.Models()...)
@@ -47,7 +47,7 @@ func New(cfg *config.Config) (*App, error) {
 	}
 
 	if cfg.App.Seed {
-		if err := seed(db); err != nil {
+		if err := seed(db, cfg.Upload.Dir); err != nil {
 			return nil, fmt.Errorf("初始化演示数据失败: %w", err)
 		}
 	}

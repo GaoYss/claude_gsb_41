@@ -6,6 +6,7 @@ import (
 
 	"streetlight/internal/modules/fault"
 	"streetlight/internal/modules/lamp"
+	"streetlight/internal/modules/material"
 	"streetlight/internal/modules/repair"
 )
 
@@ -15,9 +16,9 @@ type Module struct {
 	handler *Handler
 }
 
-// New 构造维修状态查询模块, 依赖路灯 / 故障 / 维修三个模块的只读仓储。
-func New(db *gorm.DB, lamps *lamp.Repository, faults *fault.Repository, repairs *repair.Repository) *Module {
-	service := NewService(db, lamps, faults, repairs)
+// New 构造维修状态查询模块, 依赖路灯 / 故障 / 维修 / 现场材料四个模块的只读仓储。
+func New(db *gorm.DB, lamps *lamp.Repository, faults *fault.Repository, repairs *repair.Repository, materials *material.Repository) *Module {
+	service := NewService(db, lamps, faults, repairs, materials)
 	return &Module{service: service, handler: NewHandler(service)}
 }
 

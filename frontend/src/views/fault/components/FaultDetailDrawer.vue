@@ -73,6 +73,13 @@
           </el-table-column>
           <el-table-column prop="content" label="维修内容" min-width="160" show-overflow-tooltip />
         </el-table>
+
+        <div class="section-title drawer-block">现场材料</div>
+        <MaterialPanel
+          :fault-id="detail.fault.id"
+          :readonly="detail.fault.status === 'closed'"
+          @change="$emit('materials-changed')"
+        />
       </template>
       <el-empty v-else description="暂无故障数据" />
     </div>
@@ -82,6 +89,7 @@
 <script setup>
 import { ref } from 'vue'
 import StatusTag from '@/components/common/StatusTag.vue'
+import MaterialPanel from '@/components/common/MaterialPanel.vue'
 import { statusApi } from '@/api/status'
 import { FAULT_LEVEL, FAULT_SOURCE, FAULT_STATUS, REPAIR_RESULT, REPAIR_STATUS, RUN_STATUS, TIMELINE_STAGE, dictLabel, dictType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
@@ -91,7 +99,7 @@ const props = defineProps({
   faultId: { type: [Number, String], default: null },
 })
 
-defineEmits(['update:modelValue'])
+defineEmits(['update:modelValue', 'materials-changed'])
 
 const loading = ref(false)
 const detail = ref({ fault: null, lamp: null, repairs: [], timeline: [] })

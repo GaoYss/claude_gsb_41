@@ -44,6 +44,15 @@
         <el-table-column label="处理状态" width="100">
           <template #default="{ row }"><StatusTag :dict="FAULT_STATUS" :value="row.status" /></template>
         </el-table-column>
+        <el-table-column label="现场材料" width="110" align="center">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.material_complete === false" :content="`缺失: ${row.material_missing.join('、')}`" placement="top">
+              <el-tag type="warning" size="small" effect="plain">缺 {{ row.material_missing.length }} 项</el-tag>
+            </el-tooltip>
+            <el-tag v-else-if="row.material_complete === true" type="success" size="small" effect="plain">齐全</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="来源" width="100">
           <template #default="{ row }">{{ dictLabel(FAULT_SOURCE, row.source) }}</template>
         </el-table-column>
@@ -80,7 +89,7 @@
       :fault-type-options="faultTypeOptions"
       @saved="handleSaved"
     />
-    <FaultDetailDrawer v-model="detailVisible" :fault-id="activeFaultId" />
+    <FaultDetailDrawer v-model="detailVisible" :fault-id="activeFaultId" @materials-changed="load" />
     <RepairFormDialog v-model="repairVisible" :fault="repairTarget" @saved="handleSaved" />
   </div>
 </template>

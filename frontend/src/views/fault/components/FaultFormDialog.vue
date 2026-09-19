@@ -1,97 +1,113 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    :title="isEdit ? '编辑故障登记' : '登记路灯故障'"
+    :title="dialogTitle"
     width="680px"
     @update:model-value="$emit('update:modelValue', $event)"
     @open="syncForm"
   >
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-      <el-form-item label="所属路灯" prop="lamp_id">
-        <el-select
-          v-model="form.lamp_id"
-          filterable
-          remote
-          reserve-keyword
-          :disabled="isEdit"
-          :remote-method="searchLamps"
-          :loading="lampLoading"
-          placeholder="输入路灯编号 / 道路名称搜索"
-          style="width: 100%"
-        >
-          <el-option
-            v-for="item in lampCandidates"
-            :key="item.id"
-            :label="`${item.code} · ${item.road_name} · ${item.name || '未命名'}`"
-            :value="item.id"
-          />
-        </el-select>
-        <div v-if="selectedLamp" class="form-hint text-muted">
-          当前状态: {{ runStatusText }} · {{ selectedLamp.lamp_type }} · {{ selectedLamp.power || 0 }} W
-        </div>
-      </el-form-item>
+    <template v-if="!createdFault">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+        <el-form-item label="所属路灯" prop="lamp_id">
+          <el-select
+            v-model="form.lamp_id"
+            filterable
+            remote
+            reserve-keyword
+            :disabled="isEdit"
+            :remote-method="searchLamps"
+            :loading="lampLoading"
+            placeholder="输入路灯编号 / 道路名称搜索"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in lampCandidates"
+              :key="item.id"
+              :label="`${item.code} · ${item.road_name} · ${item.name || '未命名'}`"
+              :value="item.id"
+            />
+          </el-select>
+          <div v-if="selectedLamp" class="form-hint text-muted">
+            当前状态: {{ runStatusText }} · {{ selectedLamp.lamp_type }} · {{ selectedLamp.power || 0 }} W
+          </div>
+        </el-form-item>
 
-      <el-row :gutter="16">
-        <el-col :span="12">
-          <el-form-item label="故障类型" prop="fault_type">
-            <el-select v-model="form.fault_type" placeholder="请选择故障类型" style="width: 100%">
-              <el-option v-for="item in faultTypeOptions" :key="item" :label="item" :value="item" />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="紧急程度" prop="fault_level">
-            <el-select v-model="form.fault_level" style="width: 100%">
-              <el-option v-for="(item, key) in FAULT_LEVEL" :key="key" :label="item.label" :value="key" />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="故障来源" prop="source">
-            <el-select v-model="form.source" style="width: 100%">
-              <el-option v-for="(item, key) in FAULT_SOURCE" :key="key" :label="item.label" :value="key" />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="上报时间" prop="reported_at">
-            <el-date-picker
-              v-model="form.reported_at"
-              type="datetime"
-              value-format="YYYY-MM-DD HH:mm:ss"
-              placeholder="默认取当前时间"
-              style="width: 100%"
-            />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="上报人" prop="reporter">
-            <el-input v-model="form.reporter" placeholder="例如 巡检员王师傅" />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="联系电话" prop="reporter_phone">
-            <el-input v-model="form.reporter_phone" placeholder="选填" />
-          </el-form-item>
-        </el-col>
-        <el-col :span="24">
-          <el-form-item label="故障描述" prop="description">
-            <el-input
-              v-model="form.description"
-              type="textarea"
-              :rows="3"
-              maxlength="512"
-              show-word-limit
-              placeholder="请描述现场现象, 例如: 整灯不亮、灯光闪烁、灯杆倾斜等"
-            />
-          </el-form-item>
-        </el-col>
-      </el-row>
-    </el-form>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="故障类型" prop="fault_type">
+              <el-select v-model="form.fault_type" placeholder="请选择故障类型" style="width: 100%">
+                <el-option v-for="item in faultTypeOptions" :key="item" :label="item" :value="item" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="紧急程度" prop="fault_level">
+              <el-select v-model="form.fault_level" style="width: 100%">
+                <el-option v-for="(item, key) in FAULT_LEVEL" :key="key" :label="item.label" :value="key" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="故障来源" prop="source">
+              <el-select v-model="form.source" style="width: 100%">
+                <el-option v-for="(item, key) in FAULT_SOURCE" :key="key" :label="item.label" :value="key" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="上报时间" prop="reported_at">
+              <el-date-picker
+                v-model="form.reported_at"
+                type="datetime"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                placeholder="默认取当前时间"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="上报人" prop="reporter">
+              <el-input v-model="form.reporter" placeholder="例如 巡检员王师傅" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="联系电话" prop="reporter_phone">
+              <el-input v-model="form.reporter_phone" placeholder="选填" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="故障描述" prop="description">
+              <el-input
+                v-model="form.description"
+                type="textarea"
+                :rows="3"
+                maxlength="512"
+                show-word-limit
+                placeholder="请描述现场现象, 例如: 整灯不亮、灯光闪烁、灯杆倾斜等"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+
+      <div v-if="isEdit" class="material-section">
+        <div class="material-section__title">登记现场材料</div>
+        <MaterialPanel :fault-id="model.id" stage="registration" />
+      </div>
+    </template>
+
+    <div v-else class="material-section">
+      <el-alert type="success" :closable="false" show-icon class="material-section__alert"
+        title="故障登记成功, 可立即上传登记现场照片(必要材料, 缺失将无法闭环)" />
+      <MaterialPanel :fault-id="createdFault.id" stage="registration" />
+    </div>
 
     <template #footer>
-      <el-button @click="$emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="handleSubmit">保存</el-button>
+      <template v-if="!createdFault">
+        <el-button @click="$emit('update:modelValue', false)">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleSubmit">保存</el-button>
+      </template>
+      <el-button v-else type="primary" @click="finishCreate">完成</el-button>
     </template>
   </el-dialog>
 </template>
@@ -99,6 +115,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import MaterialPanel from '@/components/common/MaterialPanel.vue'
 import { faultApi } from '@/api/fault'
 import { lampApi } from '@/api/lamp'
 import { FAULT_LEVEL, FAULT_SOURCE, RUN_STATUS, dictLabel } from '@/constants/dict'
@@ -117,10 +134,16 @@ const submitting = ref(false)
 const lampLoading = ref(false)
 const lampCandidates = ref([])
 const cachedLamp = ref(null)
+// 登记成功后进入材料上传步骤, 材料管理从登记环节即介入
+const createdFault = ref(null)
 
 const isEdit = computed(() => Boolean(props.model?.id))
 const selectedLamp = computed(() => cachedLamp.value)
 const runStatusText = computed(() => dictLabel(RUN_STATUS, selectedLamp.value?.run_status))
+const dialogTitle = computed(() => {
+  if (createdFault.value) return '上传登记现场材料'
+  return isEdit.value ? '编辑故障登记' : '登记路灯故障'
+})
 
 const createForm = () => ({
   lamp_id: undefined,
@@ -157,6 +180,7 @@ async function searchLamps(keyword = '') {
 async function syncForm() {
   Object.assign(form, createForm())
   cachedLamp.value = null
+  createdFault.value = null
 
   if (props.model) {
     Object.assign(form, {
@@ -206,15 +230,24 @@ async function handleSubmit() {
       const { lamp_id: _ignored, ...rest } = payload
       await faultApi.update(props.model.id, rest)
       ElMessage.success('故障登记信息已更新')
+      emit('update:modelValue', false)
+      emit('saved')
     } else {
-      await faultApi.create(payload)
+      const created = await faultApi.create(payload)
       ElMessage.success('故障登记成功, 路灯状态已更新为故障')
+      // 登记成功后留在弹窗内上传登记现场材料
+      createdFault.value = created
+      emit('saved')
     }
-    emit('update:modelValue', false)
-    emit('saved')
   } finally {
     submitting.value = false
   }
+}
+
+// 材料上传步骤结束, 关闭弹窗。
+function finishCreate() {
+  createdFault.value = null
+  emit('update:modelValue', false)
 }
 </script>
 
@@ -222,5 +255,20 @@ async function handleSubmit() {
 .form-hint {
   font-size: 12px;
   line-height: 1.6;
+}
+
+.material-section {
+  margin-top: 8px;
+  border-top: 1px dashed var(--el-border-color-lighter);
+  padding-top: 12px;
+}
+
+.material-section__title {
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.material-section__alert {
+  margin-bottom: 12px;
 }
 </style>

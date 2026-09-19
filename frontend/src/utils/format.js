@@ -53,3 +53,12 @@ export function formatWaiting(hours) {
   if (num < 24) return `${num.toFixed(1)} 小时`
   return `${(num / 24).toFixed(1)} 天`
 }
+
+// 文件大小转可读文案。
+export function formatFileSize(bytes) {
+  const num = Number(bytes ?? 0)
+  if (Number.isNaN(num) || num <= 0) return '-'
+  if (num < 1024) return `${num} B`
+  if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`
+  return `${(num / 1024 / 1024).toFixed(1)} MB`
+}
