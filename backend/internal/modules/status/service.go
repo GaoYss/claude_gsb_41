@@ -12,6 +12,7 @@ import (
 	"streetlight/internal/apperr"
 	"streetlight/internal/modules/fault"
 	"streetlight/internal/modules/lamp"
+	"streetlight/internal/modules/material"
 	"streetlight/internal/modules/repair"
 	"streetlight/pkg/pagination"
 )
@@ -51,15 +52,16 @@ type TrackQuery struct {
 // Service 提供跨模块的维修状态查询能力(只读)。
 // 作为读模型, 它直接基于 lamp / fault / repair 三张表组装视图, 避免不必要的多次往返查询。
 type Service struct {
-	db      *gorm.DB
-	lamps   *lamp.Repository
-	faults  *fault.Repository
-	repairs *repair.Repository
+	db        *gorm.DB
+	lamps     *lamp.Repository
+	faults    *fault.Repository
+	repairs   *repair.Repository
+	materials *material.Service
 }
 
 // NewService 构造维修状态查询服务。
-func NewService(db *gorm.DB, lamps *lamp.Repository, faults *fault.Repository, repairs *repair.Repository) *Service {
-	return &Service{db: db, lamps: lamps, faults: faults, repairs: repairs}
+func NewService(db *gorm.DB, lamps *lamp.Repository, faults *fault.Repository, repairs *repair.Repository, materials *material.Service) *Service {
+	return &Service{db: db, lamps: lamps, faults: faults, repairs: repairs, materials: materials}
 }
 
 // Overview 汇总维修状态看板数据。
@@ -145,6 +147,11 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 		return nil, err
 	}
 
+	materialSummary, err := s.materials.Summary(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Overview{
 		Lamp: LampSummary{
 			Total:       lampTotal,
@@ -166,6 +173,7 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 			AverageDurationHr: round2(averageDuration),
 			TotalCost:         round2(totalCost),
 		},
+		Material:      materialSummary,
 		FaultByType:   topCounts(faultByType, 0),
 		FaultByLevel:  orderedCounts(faultByLevel, fault.Levels()),
 		TopRoads:      topCounts(faultByRoad, 5),
@@ -308,6 +316,7 @@ func (s *Service) Track(ctx context.Context, query TrackQuery) (*TrackResult, er
 			Lamp:          device,
 			Repairs:       make([]repair.Repair, 0),
 			Timeline:      make([]TimelineEvent, 0),
+			MediaGroups:   make([]material.MediaGroup, 0),
 			RelatedFaults: toBriefs(history),
 		}
 		if len(history) > 0 {
@@ -319,6 +328,9 @@ func (s *Service) Track(ctx context.Context, query TrackQuery) (*TrackResult, er
 			result.Fault = &latest
 			result.Repairs = repairs
 			result.Timeline = buildTimeline(&latest, repairs)
+			if err := s.fillMaterialTrack(ctx, result, latest.ID); err != nil {
+				return nil, err
+			}
 		}
 		return result, nil
 
@@ -337,13 +349,33 @@ func (s *Service) buildFaultTrack(ctx context.Context, entity *fault.Fault) (*Tr
 	if err != nil {
 		return nil, err
 	}
-	return &TrackResult{
+	result := &TrackResult{
 		SearchType: "fault",
 		Lamp:       device,
 		Fault:      entity,
 		Repairs:    repairs,
 		Timeline:   buildTimeline(entity, repairs),
-	}, nil
+	}
+	if err := s.fillMaterialTrack(ctx, result, entity.ID); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// fillMaterialTrack 向追踪结果填充材料完整情况与分阶段现场媒体。
+func (s *Service) fillMaterialTrack(ctx context.Context, result *TrackResult, faultID uint) error {
+	completeness, err := s.materials.Completeness(ctx, faultID)
+	if err != nil {
+		return err
+	}
+	result.Material = completeness
+
+	medias, err := s.materials.ListMedia(ctx, material.MediaQuery{FaultID: faultID})
+	if err != nil {
+		return err
+	}
+	result.MediaGroups = material.GroupMedia(medias)
+	return nil
 }
 
 // countFaultsByLamp 批量统计每盏路灯的故障数量, openOnly 为 true 时仅统计未闭环故障。

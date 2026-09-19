@@ -15,6 +15,7 @@ type Config struct {
 	App      AppConfig
 	Server   ServerConfig
 	Database DatabaseConfig
+	Material MaterialConfig
 }
 
 // AppConfig 应用级配置。
@@ -22,6 +23,11 @@ type AppConfig struct {
 	Name string
 	Env  string
 	Seed bool
+}
+
+// MaterialConfig 现场材料管理配置。
+type MaterialConfig struct {
+	MediaRoot string // 现场照片/视频的本地存储目录
 }
 
 // IsProduction 用于控制日志与错误细节的输出方式。
@@ -71,6 +77,9 @@ func Load() (*Config, error) {
 			Driver:   strings.ToLower(getEnv("DB_DRIVER", "sqlite")),
 			DSN:      getEnv("DB_DSN", "data/streetlight.db"),
 			LogLevel: getEnv("DB_LOG_LEVEL", "warn"),
+		},
+		Material: MaterialConfig{
+			MediaRoot: getEnv("MATERIAL_MEDIA_ROOT", "data/materials"),
 		},
 	}
 

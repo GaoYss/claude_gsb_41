@@ -31,10 +31,27 @@ type LampPort interface {
 	UpdateRunStatus(ctx context.Context, id uint, status string) error
 }
 
+// MaterialStatus 描述单条故障的现场材料到位情况, 由现场材料模块回填。
+type MaterialStatus struct {
+	HasChecklist  bool // 是否登记了材料清单
+	Complete      bool // 必要材料是否已全部到位
+	TotalCount    int  // 材料项总数
+	RequiredCount int  // 必要材料数量
+	MissingCount  int  // 缺失的必要材料数量
+}
+
+// MaterialStatusPort 由现场材料模块实现:
+// 故障模块据此在闭环前校验必要材料, 并在列表中标记材料是否齐全。
+type MaterialStatusPort interface {
+	BatchStatus(ctx context.Context, faultIDs []uint) (map[uint]MaterialStatus, error)
+	AssertClosable(ctx context.Context, faultID uint) error
+}
+
 // Service 承载故障登记的业务规则, 并向维修模块提供故障状态流转能力。
 type Service struct {
-	repo  *Repository
-	lamps LampPort
+	repo      *Repository
+	lamps     LampPort
+	materials MaterialStatusPort
 }
 
 // NewService 构造故障登记服务。
@@ -42,12 +59,25 @@ func NewService(repo *Repository, lamps LampPort) *Service {
 	return &Service{repo: repo, lamps: lamps}
 }
 
+// SetMaterialStatusPort 注入现场材料校验端口, 在 bootstrap 中装配以避免循环依赖。
+func (s *Service) SetMaterialStatusPort(port MaterialStatusPort) {
+	s.materials = port
+}
+
 // Repository 暴露仓储, 供 bootstrap 装配其它模块所需的端口。
 func (s *Service) Repository() *Repository { return s.repo }
 
 // GetByID 查询故障详情, 同时满足维修模块 FaultPort 端口定义。
 func (s *Service) GetByID(ctx context.Context, id uint) (*Fault, error) {
-	return s.repo.GetByID(ctx, id)
+	entity, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.fillMaterialStatus(ctx, []*Fault{entity}); err != nil {
+		// 材料状态仅用于展示, 回填失败不应阻断详情查询。
+		slog.Warn("回填故障材料状态失败", "fault_id", id, "error", err)
+	}
+	return entity, nil
 }
 
 // GetByNo 按故障单号查询故障。
@@ -66,7 +96,37 @@ func (s *Service) List(ctx context.Context, query ListQuery) ([]Fault, int64, pa
 	if err != nil {
 		return nil, 0, page, err
 	}
+	refs := make([]*Fault, len(items))
+	for index := range items {
+		refs[index] = &items[index]
+	}
+	if err := s.fillMaterialStatus(ctx, refs); err != nil {
+		// 材料齐全标记是增强信息, 查询失败时降级为无标记, 不影响故障列表主体。
+		slog.Warn("批量回填故障材料状态失败", "error", err)
+	}
 	return items, total, page, nil
+}
+
+// fillMaterialStatus 批量回填故障的材料齐全标记。
+func (s *Service) fillMaterialStatus(ctx context.Context, entities []*Fault) error {
+	if s.materials == nil || len(entities) == 0 {
+		return nil
+	}
+	ids := make([]uint, 0, len(entities))
+	for _, item := range entities {
+		ids = append(ids, item.ID)
+	}
+	statusMap, err := s.materials.BatchStatus(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, entity := range entities {
+		status := statusMap[entity.ID]
+		entity.MaterialConfigured = status.HasChecklist
+		entity.MaterialComplete = status.Complete
+		entity.MaterialMissingCount = status.MissingCount
+	}
+	return nil
 }
 
 // ListByLamp 查询某盏路灯的故障历史。
@@ -200,6 +260,13 @@ func (s *Service) Close(ctx context.Context, id uint, req CloseRequest) (*Fault,
 		return nil, apperr.Conflict("故障 %s 当前状态为 %s, 不允许关闭", entity.FaultNo, StatusLabel(entity.Status))
 	}
 
+	// 必要现场材料缺失时不允许闭环。
+	if s.materials != nil {
+		if err := s.materials.AssertClosable(ctx, entity.ID); err != nil {
+			return nil, err
+		}
+	}
+
 	now := time.Now()
 	entity.Status = StatusClosed
 	entity.ClosedAt = &now
@@ -210,6 +277,9 @@ func (s *Service) Close(ctx context.Context, id uint, req CloseRequest) (*Fault,
 	}
 	if err := s.syncLampStatus(ctx, entity.LampID); err != nil {
 		slog.Warn("同步路灯运行状态失败", "lamp_id", entity.LampID, "fault_no", entity.FaultNo, "error", err)
+	}
+	if err := s.fillMaterialStatus(ctx, []*Fault{entity}); err != nil {
+		slog.Warn("回填故障材料状态失败", "fault_id", entity.ID, "error", err)
 	}
 	return entity, nil
 }

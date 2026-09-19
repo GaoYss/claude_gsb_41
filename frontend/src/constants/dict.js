@@ -52,6 +52,26 @@ export const TIMELINE_STAGE = {
   closed: { label: '故障关闭', type: 'info' },
 }
 
+// 现场材料归档阶段。
+export const MATERIAL_STAGE = {
+  register: { label: '登记环节', type: 'primary' },
+  process: { label: '维修过程', type: 'warning' },
+  acceptance: { label: '完工验收', type: 'success' },
+}
+
+// 现场媒体类型。
+export const MEDIA_TYPE = {
+  image: { label: '照片', type: 'primary' },
+  video: { label: '视频', type: 'success' },
+}
+
+// 材料齐全状态(故障列表/详情用)。
+export const MATERIAL_STATUS = {
+  complete: { label: '材料齐全', type: 'success' },
+  missing: { label: '材料缺失', type: 'danger' },
+  unconfigured: { label: '未登记清单', type: 'info' },
+}
+
 // 取字典项文案。
 export function dictLabel(dict, key, fallback = '-') {
   if (key === null || key === undefined || key === '') return fallback

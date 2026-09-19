@@ -5,6 +5,7 @@ import (
 
 	"streetlight/internal/modules/fault"
 	"streetlight/internal/modules/lamp"
+	"streetlight/internal/modules/material"
 	"streetlight/internal/modules/repair"
 )
 
@@ -55,16 +56,17 @@ type RepairSummary struct {
 
 // Overview 维修状态总览看板。
 type Overview struct {
-	Lamp          LampSummary  `json:"lamp"`
-	Fault         FaultSummary `json:"fault"`
-	Repair        RepairSummary `json:"repair"`
-	FaultByType   []LabelCount  `json:"fault_by_type"`
-	FaultByLevel  []LabelCount  `json:"fault_by_level"`
-	TopRoads      []LabelCount  `json:"top_roads"`
-	RecentFaults  []FaultBrief  `json:"recent_faults"`
-	OverdueFaults []FaultBrief  `json:"overdue_faults"`
-	OverdueHours  float64       `json:"overdue_threshold_hours"`
-	GeneratedAt   time.Time     `json:"generated_at"`
+	Lamp          LampSummary                   `json:"lamp"`
+	Fault         FaultSummary                  `json:"fault"`
+	Repair        RepairSummary                 `json:"repair"`
+	Material      *material.CompletenessSummary `json:"material"`
+	FaultByType   []LabelCount                  `json:"fault_by_type"`
+	FaultByLevel  []LabelCount                  `json:"fault_by_level"`
+	TopRoads      []LabelCount                  `json:"top_roads"`
+	RecentFaults  []FaultBrief                  `json:"recent_faults"`
+	OverdueFaults []FaultBrief                  `json:"overdue_faults"`
+	OverdueHours  float64                       `json:"overdue_threshold_hours"`
+	GeneratedAt   time.Time                     `json:"generated_at"`
 }
 
 // LampStatusRow 是"维修状态查询"列表中的一行: 一盏路灯的当前维修进展。
@@ -101,10 +103,12 @@ type TimelineEvent struct {
 
 // TrackResult 是单条故障(或单盏路灯)的完整处理链路。
 type TrackResult struct {
-	SearchType    string            `json:"search_type"`
-	Lamp          *lamp.Lamp        `json:"lamp,omitempty"`
-	Fault         *fault.Fault      `json:"fault,omitempty"`
-	Repairs       []repair.Repair   `json:"repairs"`
-	Timeline      []TimelineEvent   `json:"timeline"`
-	RelatedFaults []FaultBrief      `json:"related_faults,omitempty"`
+	SearchType    string                 `json:"search_type"`
+	Lamp          *lamp.Lamp             `json:"lamp,omitempty"`
+	Fault         *fault.Fault           `json:"fault,omitempty"`
+	Repairs       []repair.Repair        `json:"repairs"`
+	Timeline      []TimelineEvent        `json:"timeline"`
+	Material      *material.Completeness `json:"material,omitempty"`
+	MediaGroups   []material.MediaGroup  `json:"media_groups"`
+	RelatedFaults []FaultBrief           `json:"related_faults,omitempty"`
 }

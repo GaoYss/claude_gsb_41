@@ -41,7 +41,7 @@ type seedFaultCase struct {
 }
 
 // seed 在数据库为空时写入演示数据, 便于启动后立即体验完整业务流程。
-func seed(db *gorm.DB) error {
+func seed(db *gorm.DB, mediaRoot string) error {
 	var count int64
 	if err := db.Model(&lamp.Lamp{}).Count(&count).Error; err != nil {
 		return err
@@ -143,6 +143,10 @@ func seed(db *gorm.DB) error {
 	}
 
 	if err := syncSeedLampStatus(db, faults, lamps); err != nil {
+		return err
+	}
+
+	if err := seedMaterials(db, mediaRoot, faults, cases); err != nil {
 		return err
 	}
 

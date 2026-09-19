@@ -103,6 +103,11 @@ type Fault struct {
 	CloseRemark    string     `gorm:"size:255" json:"close_remark"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
+
+	// 现场材料状态, 不落库, 由材料模块在列表/详情响应前批量回填。
+	MaterialConfigured   bool `gorm:"-" json:"material_configured"`    // 是否登记了材料清单
+	MaterialComplete     bool `gorm:"-" json:"material_complete"`      // 必要材料是否齐全
+	MaterialMissingCount int  `gorm:"-" json:"material_missing_count"` // 缺失的必要材料数量
 }
 
 // TableName 指定表名。
